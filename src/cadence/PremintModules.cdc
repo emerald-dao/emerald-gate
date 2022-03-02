@@ -14,7 +14,11 @@ pub contract PremintModules {
                               ?? panic("Could not borrow the vault from the path: ".concat(self.path.toString().concat(".")))
         assert(
           vault.getType().identifier == self.identifier,
-          message: "User is trying to falsely manipulate the registration."
+          message: "Mismatched identifiers. "
+                      .concat(vault.getType().identifier)
+                      .concat(" on the Vault, but ")
+                      .concat(self.identifier)
+                      .concat(" on the passed in identifier.")
         )
 
         assert(

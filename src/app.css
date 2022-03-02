@@ -3,12 +3,8 @@
 
 /* Green (Common styles) */
 :root {
-  --form-element-active-border-color: var(--primary);
-  --form-element-focus-color: var(--primary-focus);
-  --switch-color: var(--primary-inverse);
-  --switch-checked-background-color: var(--primary);
-  --primary: #d81b60;
-  --primary-hover: #dd5587;
+  --primary: #d81b60 !important;
+  --primary-hover: #dd5587 !important;
 }
 
 /* Hide scrollbar for Chrome, Safari and Opera */
@@ -100,6 +96,11 @@ h3 {
 .red {
   border-color: red;
   color: red;
+}
+
+.green {
+  border-color: #04ee8a;
+  color: #04ee8a;
 }
 
 .card h1 {

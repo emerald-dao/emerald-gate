@@ -1,7 +1,7 @@
 import Premint from "../Premint.cdc"
 import PremintModules from "../PremintModules.cdc"
 
-transaction(active: Bool, name: String, description: String, image: String, url: String, tokenPath: PublicPath, amount: UFix64, identifier: String) {
+transaction(active: Bool, name: String, description: String, image: String, url: String, tokenPaths: [PublicPath], amounts: [UFix64], identifiers: [String]) {
 
   let Registry: &Premint.Registry
 
@@ -18,8 +18,10 @@ transaction(active: Bool, name: String, description: String, image: String, url:
 
   execute {
     let modules: [{Premint.IModule}] = []
-    if identifier != "" {
-      modules.append(PremintModules.OwnsToken(_path: tokenPath, amount: amount, identifier: identifier))
+    var i = 0
+    while i < identifiers.length {
+      modules.append(PremintModules.OwnsToken(_path: tokenPaths[i], amount: amounts[i], identifier: identifiers[i]))
+      i = i + 1
     }
     self.Registry.createEvent(active: active, description: description, image: image, name: name, url: url, modules: modules, {})
     log("Started a new event.")

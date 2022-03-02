@@ -28,18 +28,26 @@ export const unauthenticate = () => fcl.unauthenticate();
 export const authenticate = () => fcl.authenticate();
 
 const convertDraftWhitelist = (draftWhitelist) => {
+  let tokenPaths = [];
+  let identifiers = [];
+  let amounts = [];
+  draftWhitelist.tokens.forEach(element => {
+    tokenPaths.push({
+      domain: "public", // public | private | storage
+      identifier: element.tokenPath.replace("/public/", "")
+    });
+    identifiers.push(element.identifier);
+    amounts.push(element.amount);
+  })
   return {
     active: draftWhitelist.active,
     name: draftWhitelist.name,
     description: draftWhitelist.description,
     image: draftWhitelist.ipfsHash,
     url: draftWhitelist.url,
-    tokenPath: {
-      domain: "public", // public | private | storage
-      identifier: draftWhitelist.tokenPath.replace("/public/", "")
-    },
-    amount: draftWhitelist.amount == "" ? 0.0 : parseInt(draftWhitelist.amount).toFixed(1),
-    identifier: draftWhitelist.identifier
+    tokenPaths,
+    amounts,
+    identifiers
   };
 }
 
@@ -61,30 +69,32 @@ export const createWhitelist = async (draftWhitelist) => {
       import Premint from 0xPM
       import PremintModules from 0xPM
 
-      transaction(active: Bool, name: String, description: String, image: String, url: String, tokenPath: PublicPath, amount: UFix64, identifier: String) {
+      transaction(active: Bool, name: String, description: String, image: String, url: String, tokenPaths: [PublicPath], amounts: [UFix64], identifiers: [String]) {
 
         let Registry: &Premint.Registry
-
+      
         prepare(acct: AuthAccount) {
           // set up the Registry where users will store all their created events
           if acct.borrow<&Premint.Registry>(from: Premint.RegistryStoragePath) == nil {
             acct.save(<- Premint.createEmptyRegistry(), to: Premint.RegistryStoragePath)
             acct.link<&Premint.Registry{Premint.RegistryPublic}>(Premint.RegistryPublicPath, target: Premint.RegistryStoragePath)
           }
-
+      
           self.Registry = acct.borrow<&Premint.Registry>(from: Premint.RegistryStoragePath)
                               ?? panic("Could not borrow the Registry from the signer.")
         }
-
+      
         execute {
           let modules: [{Premint.IModule}] = []
-          if identifier != "" {
-            modules.append(PremintModules.OwnsToken(_path: tokenPath, amount: amount, identifier: identifier))
+          var i = 0
+          while i < identifiers.length {
+            modules.append(PremintModules.OwnsToken(_path: tokenPaths[i], amount: amounts[i], identifier: identifiers[i]))
+            i = i + 1
           }
           self.Registry.createEvent(active: active, description: description, image: image, name: name, url: url, modules: modules, {})
           log("Started a new event.")
         }
-      }
+      }      
       `,
       args: (arg, t) => [
         arg(whitelistObject.active, t.Bool),
@@ -92,9 +102,9 @@ export const createWhitelist = async (draftWhitelist) => {
         arg(whitelistObject.description, t.String),
         arg(whitelistObject.image, t.String),
         arg(whitelistObject.url, t.String),
-        arg(whitelistObject.tokenPath, t.Path),
-        arg(whitelistObject.amount, t.UFix64),
-        arg(whitelistObject.identifier, t.String)
+        arg(whitelistObject.tokenPaths, t.Array(t.Path)),
+        arg(whitelistObject.amounts, t.Array(t.UFix64)),
+        arg(whitelistObject.identifiers, t.Array(t.String))
       ],
       payer: fcl.authz,
       proposer: fcl.authz,
@@ -311,6 +321,70 @@ export const deleteEvent = async (eventId) => {
   }
 }
 
+export const setupFUSDVault = async () => {
+  let transactionId = false;
+  initTransactionState()
+
+  try {
+    transactionId = await fcl.mutate({
+      cadence: `
+      import FungibleToken from 0x9a0766d93b6608b7
+      import FUSD from 0xe223d8a629e49c68
+
+      transaction {
+
+          prepare(signer: AuthAccount) {
+
+              // It's OK if the account already has a Vault, but we don't want to replace it
+              if(signer.borrow<&FUSD.Vault>(from: /storage/fusdVault) != nil) {
+                  return
+              }
+              
+              // Create a new FUSD Vault and put it in storage
+              signer.save(<-FUSD.createEmptyVault(), to: /storage/fusdVault)
+
+              // Create a public capability to the Vault that only exposes
+              // the deposit function through the Receiver interface
+              signer.link<&FUSD.Vault{FungibleToken.Receiver}>(
+                  /public/fusdReceiver,
+                  target: /storage/fusdVault
+              )
+
+              // Create a public capability to the Vault that only exposes
+              // the balance field through the Balance interface
+              signer.link<&FUSD.Vault{FungibleToken.Balance}>(
+                  /public/fusdBalance,
+                  target: /storage/fusdVault
+              )
+          }
+      }
+      `,
+      args: (arg, t) => [
+      ],
+      payer: fcl.authz,
+      proposer: fcl.authz,
+      authorizations: [fcl.authz],
+      limit: 999
+    })
+
+    txId.set(transactionId);
+
+    fcl.tx(transactionId).subscribe(res => {
+      transactionStatus.set(res.status)
+      if (res.status === 4) {
+        setTimeout(() => transactionInProgress.set(false), 2000)
+      }
+    })
+
+    let res = await fcl.tx(transactionId).onceSealed()
+    return res;
+
+  } catch (e) {
+    transactionStatus.set(99)
+    console.log(e)
+  }
+}
+
 
 /****************************** GETTERS ******************************/
 
@@ -467,7 +541,37 @@ export const hasRegisteredInEvent = async (hostAddress, eventId, accountAddress)
         arg(accountAddress, t.Address)
       ]
     })
-    
+
+    return queryResult;
+  } catch (e) {
+    console.log(e);
+  }
+}
+
+export const checkTokenHolding = async (amount, identifier, path, addr) => {
+  try {
+    let queryResult = await fcl.query({
+      cadence: `
+      import FungibleToken from 0x9a0766d93b6608b7
+
+      pub fun main(amount: UFix64, identifier: String, path: PublicPath, addr: Address): Bool {
+        if let vault = getAccount(addr).getCapability(path).borrow<&{FungibleToken.Balance}>() {
+          if vault.getType().identifier == identifier {
+            return vault.balance >= amount
+          }
+        }
+      
+        return false
+      }
+      `,
+      args: (arg, t) => [
+        arg("40.0", t.UFix64),
+        arg(identifier, t.String),
+        arg(path, t.Path),
+        arg(addr, t.Address)
+      ]
+    })
+    console.log(queryResult)
     return queryResult;
   } catch (e) {
     console.log(e);

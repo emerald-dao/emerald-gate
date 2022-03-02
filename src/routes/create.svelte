@@ -8,15 +8,13 @@
 
   import { draftWhitelist, theme } from "$lib/stores";
   import { PAGE_TITLE_EXTENSION } from "$lib/constants";
-  import { notifications } from '$lib/notifications';
-
+  import { notifications } from "$lib/notifications";
 
   import LibLoader from "$lib/components/LibLoader.svelte";
   import { onMount } from "svelte";
+  import { destroy_block } from "svelte/internal";
+  import TokenRequirement from "$lib/components/TokenRequirement.svelte";
 
-  let timezone = new Date()
-    .toLocaleTimeString("en-us", { timeZoneName: "short" })
-    .split(" ")[2];
   /* States related to image upload */
   let ipfsIsReady = false;
   let uploading = false;
@@ -25,8 +23,6 @@
 
   let imagePreview;
   let imagePreviewSrc = null;
-
-  console.log($theme);
 
   onMount(() => {
     ipfsIsReady = window?.IpfsHttpClient ?? false;
@@ -57,7 +53,7 @@
     const hash = added.path;
     $draftWhitelist.ipfsHash = hash;
     imagePreviewSrc = `https://ipfs.infura.io/ipfs/${hash}`;
-    console.log($draftWhitelist)
+    console.log($draftWhitelist);
   };
 
   function ipfsReady() {
@@ -67,7 +63,34 @@
 
   let minter = $user?.addr;
   function initCreateWhitelist() {
+    let canCreateWhitelist = checkInputs();
+
+    if (!canCreateWhitelist) {
+      return;
+    }
+
     createWhitelist($draftWhitelist);
+  }
+
+  function checkInputs() {
+    let errorArray = [];
+    let messageString = "Identifier formatted incorrectly";
+
+    let tokens = $draftWhitelist.tokens;
+    tokens.forEach((token) => {
+      let identifier = token.identifier;
+      let fours = identifier.split(".");
+      if (fours[0] !== "A" || fours[1].slice(0, 2) === "0x") {
+        errorArray.push(identifier);
+      }
+    });
+
+    if (errorArray.length > 0) {
+      notifications.info(`${messageString}: ${errorArray.join(",")}`);
+      return false;
+    } else {
+      return true;
+    }
   }
 </script>
 
@@ -78,8 +101,7 @@
 <LibLoader
   url="https://cdn.jsdelivr.net/npm/ipfs-http-client@56.0.0/index.min.js"
   on:loaded={ipfsReady}
-  uniqueId={+new Date()}
-/>
+  uniqueId={+new Date()} />
 
 <div class="container">
   <article>
@@ -87,12 +109,20 @@
 
     <label for="name"
       >Event Name
-      <input type="text" id="name" name="name" bind:value={$draftWhitelist.name} />
+      <input
+        type="text"
+        id="name"
+        name="name"
+        bind:value={$draftWhitelist.name} />
     </label>
 
     <label for="name"
       >Event URL
-      <input type="text" id="name" name="name" bind:value={$draftWhitelist.url} />
+      <input
+        type="text"
+        id="name"
+        name="name"
+        bind:value={$draftWhitelist.url} />
     </label>
 
     <label for="description"
@@ -100,8 +130,7 @@
       <textarea
         id="description"
         name="description"
-        bind:value={$draftWhitelist.description}
-      />
+        bind:value={$draftWhitelist.description} />
     </label>
 
     {#if ipfsIsReady}
@@ -113,8 +142,7 @@
           type="file"
           id="image"
           name="image"
-          accept="image/png, image/gif, image/jpeg"
-        />
+          accept="image/png, image/gif, image/jpeg" />
         {#if uploading}
           <progress value={uploadingPercent * 100} max="100" />
         {/if}
@@ -127,21 +155,14 @@
       <p>IPFS not loaded</p>
     {/if}
 
-    {#if imagePreviewSrc}
-      <img src={imagePreviewSrc} alt="whitelist" />
-      <!-- <h3>Preview</h3>
-      <Float
-        float={{
-          eventName: $draftWhitelist.name,
-          eventImage: $draftWhitelist.ipfsHash,
-          eventMetadata: {
-            totalSupply: "SERIAL_NUM",
-          },
-          eventHost: $user?.addr || "0x0000000000",
-        }}
-        preview={true}
-      />
-      <div class="mb-2" /> -->
+    {#if $draftWhitelist.name && $draftWhitelist.description && imagePreviewSrc}
+      <article class="whitelist-preview">
+        <img src={imagePreviewSrc} alt="whitelist" />
+        <div>
+          <h2>{$draftWhitelist.name}</h2>
+          <p>{$draftWhitelist.description}</p>
+        </div>
+      </article>
     {/if}
 
     <h3 class="mb-1">Configure your Whitelist</h3>
@@ -151,75 +172,29 @@
       <button
         class:secondary={!$draftWhitelist.active}
         class="outline"
-        on:click={() => ($draftWhitelist.active = true)}
-      >
+        on:click={() => ($draftWhitelist.active = true)}>
         Active
-        <span>Users can register for your whitelist.</span>
+        <span
+          >Users can register for your whitelist and yeah yeah yeah yeah.</span>
       </button>
       <button
         class:secondary={$draftWhitelist.active}
         class="outline"
-        on:click={() => ($draftWhitelist.active = false)}
-      >
+        on:click={() => ($draftWhitelist.active = false)}>
         Not Active
         <span>Users can not register for your whitelist.</span>
       </button>
     </div>
 
     <h5>Cannot be changed later.</h5>
-    <!-- Token Holdings -->
-    <div class="grid no-break mb-1">
-      <button
-        class:secondary={$draftWhitelist.tokenRequirement}
-        class="outline"
-        on:click={() => ($draftWhitelist.tokenRequirement = false)}
-      >
-        No Token Requirement
-        <span>User does not need to have a certain token.</span>
-      </button>
-      <button
-        class:secondary={!$draftWhitelist.tokenRequirement}
-        class="outline"
-        on:click={() => ($draftWhitelist.tokenRequirement = true)}
-      >
-        Token Requirement
-        <span>User must have a certain token.</span>
-      </button>
-    </div>
-    {#if $draftWhitelist.tokenRequirement}
-      <div class="grid">
-        <label for="tokenPath">Enter a public path
-          <input
-            type="text"
-            name="tokenPath"
-            bind:value={$draftWhitelist.tokenPath}
-            placeholder="/public/flowTokenBalance"
-          />
-        </label>
-        <label for="amount">Enter an amount
-          <input
-            type="text"
-            name="amount"
-            bind:value={$draftWhitelist.amount}
-            placeholder="40.0"
-          />
-        </label>
-        <label for="tokenPath">Enter an identifier
-          <input
-            type="text"
-            name="tokenPath"
-            bind:value={$draftWhitelist.identifier}
-            placeholder="A.7e60df042a9c0868.FlowToken.Vault"
-          />
-        </label>
-      </div>
-      <hr />
-    {/if}
+    <!-- Put all the different Modules here -->
+    <TokenRequirement />
 
     <footer>
       {#if !$user?.loggedIn}
         <div class="mt-2 mb-2">
-          <button class="contrast small-button" on:click={authenticate}>Connect Wallet</button>
+          <button class="contrast small-button" on:click={authenticate}
+            >Connect Wallet</button>
         </div>
       {:else if $eventCreationInProgress}
         <button aria-busy="true" disabled>Creating FLOAT</button>
@@ -232,15 +207,28 @@
           {$eventCreatedStatus.error}
         </button>
       {:else if $draftWhitelist.name && $draftWhitelist.ipfsHash && $draftWhitelist.description}
-        <button on:click|preventDefault={initCreateWhitelist}>Create Whitelist</button>
+        <button on:click|preventDefault={initCreateWhitelist}
+          >Create Whitelist</button>
       {:else}
-        <button disabled on:click|preventDefault={initCreateWhitelist}>Create Whitelist</button>
+        <button disabled on:click|preventDefault={initCreateWhitelist}
+          >Create Whitelist</button>
       {/if}
     </footer>
   </article>
 </div>
 
 <style>
+  .whitelist-preview {
+    display: flex;
+    align-items: center;
+    padding-top: 20px;
+    padding-bottom: 20px;
+  }
+  .whitelist-preview img {
+    width: 100px;
+    padding-right: 20px;
+  }
+
   .outline {
     text-align: left;
   }

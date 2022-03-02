@@ -6,9 +6,7 @@ export const draftWhitelist = writable({
   url: '',
   ipfsHash: '',
   active: true,
-  amount: '',
-  identifier: '',
-  tokenPath: '',
+  tokens: [],
   tokenRequirement: false
 });
 

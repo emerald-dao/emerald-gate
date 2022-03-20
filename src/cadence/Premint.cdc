@@ -40,7 +40,7 @@ pub contract Premint {
         pub fun getExtraMetadata(): {String: String}
         pub fun hasRegistered(account: Address): Bool
         pub fun getModules(): [{IModule}]
-        access(account) fun register(account: Address, params: {String: AnyStruct})
+        access(account) fun register(registrant: Address, params: {String: AnyStruct})
     }
 
     //
@@ -95,17 +95,19 @@ pub contract Premint {
 
         /****************** Registering ******************/
 
-        pub fun register(account: Address, params: {String: AnyStruct}) {
+        pub fun register(registrant: Address, params: {String: AnyStruct}) {
             pre {
                 self.active: 
                     "This FLOATEvent is not claimable, and thus not currently active."
             }
+
+            params["whitelist"] = &self as &Whitelist{WhitelistPublic}
             
             for module in self.modules {
                 module.verify(params)
             }
 
-            self.registered[account] = true
+            self.registered[registrant] = true
             self.totalCount = self.totalCount + 1
         }
 
@@ -200,9 +202,10 @@ pub contract Premint {
         }
 
         pub fun register(whitelist: &Whitelist{WhitelistPublic}, params: {String: AnyStruct}) {
-            let registree = self.owner!.address
-            params["registree"] = registree
-            whitelist.register(account: registree, params: params)
+            let registrant = self.owner!.address
+            params["registrant"] = registrant
+            params["registrantId"] = self.uuid
+            whitelist.register(registrant: registrant, params: params)
         }
 
         init() {
